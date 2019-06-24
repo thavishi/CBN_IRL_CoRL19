@@ -1,0 +1,384 @@
+#!/usr/bin/env python
+import os, sys, copy, signal
+import pickle
+import numpy as np
+
+import gym, gym.spaces, gym_2d
+from gym_2d import objects as ob
+
+from cbn_irl.mdp import value_iteration as vi
+from cbn_irl.mdp import transition_matrix as tm
+from cbn_irl import bn_irl_utils as biu, bn_irl_feature as bnirl
+
+from cbn_irl.path_planning import probabilistic_road_map_pos_2d as prm
+from cbn_irl.path_planning import dijkstra_planning as dp
+from cbn_irl.utils import test_util as tu
+from cbn_irl.utils import gen_traj as gt
+from cbn_irl.utils import misc
+from cbn_irl.viz import viz as v
+
+env_type = "circle"
+env_name  = 'reaching-v0'
+n_states  = 5000
+n_actions = 12
+leafsize  = 15
+
+gamma     = 0.95
+error     = 1e-8
+max_cnt   = 200
+
+wall_penalty = 0
+dist_thres   = 1.5
+
+# alpha[0] propto the #goals for circular path
+alphas    = [5., 0.5] 
+eta       = 0.01 #np.exp(0.8) 
+eta_range = np.logspace(-2,0.7,40)
+
+burn_in      = 1500 
+n_iter       = 3000 
+
+# T[0] propto the stability
+Ts         = [7,5] # temperature for resampling and partitionning
+queue_size = 1500 
+
+num_feat   = 10 #number of discretized features
+goal_dist  = 1
+use_discrete_state = True
+
+
+
+
+def feature_fn(env, state, instr=None, cont=True):
+    """
+    inputs:
+      state vector - a state      
+    returns:
+      feat_vec vector - a list of features
+    """
+
+    #hist_size   = 20
+    goal_state  = env.get_goal_state()
+    start_state = env.get_start_state()
+    kdtrees, objs_in_tree = env.get_label_trees()
+    center = env.data_dict['wall_center']
+    radius = env.data_dict['wall_radius']
+    wall_start  = env.data_dict['wall_start']
+    wall_middle = env.data_dict['wall_middle']
+    wall_end    = env.data_dict['wall_end']
+    diameter    = radius*2.
+
+    feat_vec = []
+
+    # Goal position --------------------------------------------------
+    #feat_vec.append(np.linalg.norm(env.goal_state-state)/60.)
+    scale = np.linalg.norm(env.goal_state-env.start_state)
+    feat_vec.append(np.linalg.norm(env.goal_state-state)/scale)
+    feat_vec.append(np.linalg.norm(env.start_state-state)/scale)
+
+    feat_vec.append(np.linalg.norm(wall_start-state)/diameter)
+    feat_vec.append(np.linalg.norm(wall_middle-state)/diameter)
+    feat_vec.append(np.linalg.norm(wall_end-state)/diameter)
+
+    # boundary ------------------------------------------------------
+    # object dist
+    min_dist = 1e+10
+    ## labels= kdtrees.keys()
+    ## dists = {}
+    ## ids   = []
+    for key in kdtrees.keys():
+        if key.find("left")>=0:
+            idx, dist = kdtrees[key].search(np.array(state),1)
+            ## dists[key] = dist
+            ## ids.append(idx)
+            if min_dist > dist: min_dist = dist           
+    feat_vec.append(min_dist/radius)
+
+    # center dist
+    c_dist = np.linalg.norm(state-center)
+    feat_vec.append(c_dist/radius)
+
+
+    return np.array(feat_vec).astype(float) 
+
+
+
+def make_default_reward(trees, states, obs_penalty=-0.1, dist_thres=2.5):
+    '''
+    Make a reward that returns a high reward at the left_wall
+    '''    
+        
+    def reward_fn(state):
+        if len(np.shape(state))>=2:
+            dists_list = []
+            for key in trees.keys():
+                _,dists = trees[key].search(state.T,1)
+                dists_list.append(dists)
+            dists = np.amin(dists_list, axis=0)
+            r_obs = np.zeros(len(states))
+            r_obs = [obs_penalty if dist<=dist_thres else 0. for dist in dists ]
+
+        else:
+            dist_list = []
+            for key in trees.keys():
+                _,dist = trees[key].search(state,1)
+                dist_list.append(dist)
+            dist  = np.amin(dist_list)
+            if dist <= dist_thres: r_obs=obs_penalty
+            else: r_obs=0.
+            
+        return r_obs
+
+    return reward_fn
+
+
+
+
+
+def train(sav_filenames, rnd_start=False, vi_renew=False, irl_renew=False, cstr_renew=False,
+          renew=False, viz=False, test_eta=-1, test_id=-1, seed=None):
+    """
+    NOTE:
+    1. Need to have the same goal in trajs and env for feature estimation.
+    """    
+    global eta
+    
+    if test_id>=0: eta = eta_range[test_id]
+    if test_eta>0: eta = test_eta
+    if seed is not None: np.random.seed(seed)
+    
+    # Set env -----------------------------------------------
+    d = ob.generate_objects(21, env_name, return_path=True, viz=True)
+    objs = d['objs']; labels=d['labels']
+    start=d['start']; goal=d['goal']; traj=d['path']
+    data_dict = {0: [traj]}
+
+    env = gym.make(env_name)
+    env.__init__(start, goal, objs, data_dict=d, viz=False)
+    trees, objs_in_tree = ob.make_labelled_trees(objs, labels)
+    env.set_label_trees(trees, objs_in_tree)
+
+    
+    # Fit continuous trajectories on the discretized space --
+    if os.path.isfile(sav_filenames['roadmap']) is False or renew:
+        roadmap, states, skdtree = prm.get_roadmap(env,
+                                                   knn=n_actions,
+                                                   n_sample=n_states,
+                                                   leafsize=leafsize,
+                                                   seed_num=4)
+        
+        T = tm.create_undirect_transition_matrix(roadmap, states, (env.action_space.low,
+                                                                   env.action_space.high),
+                                                                   action_prob=1.)
+        # Convert the raw demonstrations to roadmap based demonstrations
+        trajs, idx_trajs = gt.convertRawTraj2RoadmapTraj(env, traj, roadmap, states,
+                                                         gamma=10.0)
+        
+        d = {'roadmap': roadmap, 'states': states, #'skdtree': skdtree,
+             'trajs': trajs, 'idx_trajs': idx_trajs, 'T': T}
+        pickle.dump( d, open( sav_filenames['roadmap'], "wb" ) )
+        if irl_renew is False and vi_renew is False: return
+    else:
+        d = pickle.load( open(sav_filenames['roadmap'], "rb"))
+        roadmap = d['roadmap']
+        states  = d['states']
+        skdtree = None #d['skdtree']
+        trajs   = d['trajs']
+        idx_trajs = d['idx_trajs']
+        T         = d['T']
+
+    
+    # Set a default reward for MDP
+    reward_fn = make_default_reward(trees, states, wall_penalty, dist_thres=dist_thres)
+    rewards   = reward_fn(states)
+    env.roadmap = roadmap
+    env.states  = states
+    
+    ## from IPython import embed; embed(); sys.exit()
+    ## v.reward_value_plot(rewards, rewards, env.states) 
+    ## v.traj_plot(traj, trajs, objs, [0,60], [0,60])
+    ## sys.exit()
+        
+
+    if os.path.isfile(sav_filenames['irl']) and irl_renew is False:
+        log = pickle.load( open(sav_filenames['irl'], "rb"))
+    else:        
+        log = bnirl.bn_irl(env, roadmap, skdtree, states, T,
+                           gamma=gamma,
+                           trajs=trajs, idx_trajs=idx_trajs,
+                           feature_fn=feature_fn,
+                           alphas=alphas,
+                           sav_filenames=sav_filenames,
+                           eta=eta,
+                           rewards=rewards,
+                           vi_renew=vi_renew,
+                           burn_in=burn_in,
+                           n_iter=n_iter,
+                           max_cnt=max_cnt,
+                           Ts=Ts)
+
+    if viz:
+        #biu.viz_convergence(states, idx_trajs, log, queue_size=queue_size, cstr_enabled=False)
+        biu.animation_goals_2d(env, trajs, log, states, enable_cstr=False, queue_size=queue_size)
+
+
+def test(sav_filenames, rnd_start=False, viz=False, save_data=False, test_eta=-1,
+         test_id=-1, seed=None):
+    global start
+    global eta
+    
+    if test_id>=0: eta = eta_range[test_id]
+    if test_eta>0: eta = test_eta
+    if seed is not None: np.random.seed(seed)
+
+    # Set env -----------------------------------------------
+    d = ob.generate_objects(21, env_name, return_path=True)
+    objs = d['objs']; labels=d['labels']
+    start=d['start']; goal=d['goal']; demo_traj=d['path']
+    
+    env = gym.make(env_name)
+    env.__init__(start, goal, objs, data_dict=d, viz=False)
+    trees, objs_in_tree = ob.make_labelled_trees(objs, labels)
+    env.set_label_trees(trees, objs_in_tree)    
+            
+    # Get fitted trajectories -------------------------------
+    d = pickle.load( open(sav_filenames['roadmap'], "rb"))
+    roadmap   = d['roadmap']
+    states    = d['states']
+    skdtree   = None #d['skdtree']
+    T         = d['T']
+    env.roadmap = roadmap
+    env.states  = states
+
+    # Set MDP
+    reward_fn = make_default_reward(trees, states, wall_penalty, dist_thres=dist_thres)
+    rewards   = reward_fn(states)
+    
+    T_org = copy.copy(T)
+    agent = vi.valueIterAgent(len(roadmap[0]), len(states),
+                              roadmap, skdtree, states,
+                              rewards=rewards, gamma=gamma, T=T, verbose=False)
+    ## if rnd_start:
+    ##     env.set_start_state( get_random_start(env, default_y_angle) )
+
+    # -------------- Generalization of constraints ----------------------------------------
+    # load learned IRL
+    log = pickle.load( open(sav_filenames['irl'], "rb"))
+    irl_goals = bnirl.find_goal(agent, env, log, states, feature_fn, roadmap,
+                                error=error,
+                                queue_size=queue_size,
+                                use_discrete_state=use_discrete_state)
+    agent.T = T_org
+    
+    
+    traj, done, info = tu.test_on_discretized_space(env, agent, error, irl_goals, goal_dist,
+                                        bnirl, viz=False)
+    
+    if viz: v.subgoals_plot(irl_goals, objs, states, env, traj)
+    #v.traj_plot(demo_traj, traj, objs, [0,60], [0,60])
+    
+    if save_data:
+        from utils import evaluation as ev
+        mean_dist, _ = ev.get_path_similarity(demo_traj, traj)
+        
+        # save data
+        filename = sav_filenames['result']
+        if os.path.isfile(filename):
+            d = pickle.load( open(filename, "rb"))
+        else:
+            d = {'n_goal': [],
+                 'dist': [],
+                 'success': [],
+                 'start': [],
+                 'eta': [],
+                 'enable_cstr': [],
+                 'test_id': [],
+                 'n_collisions': [],
+                 }
+        d['n_goal'].append(len(irl_goals))
+        d['dist'].append(mean_dist)
+        d['success'].append(done)
+        ## d['start'].append( env.get_start_state() )
+        d['eta'].append(eta)
+        d['test_id'].append(test_id)
+        ## d['n_collisions'].append(info['n_collisions'])
+        print "Saved ", filename
+        pickle.dump( d, open( filename, "wb" ) )
+
+                
+
+
+if __name__ == "__main__":
+    import optparse
+    p = optparse.OptionParser()
+    p.add_option('--tr', action='store_true', dest='train',
+                 default=False, help='training')
+    p.add_option('--te', action='store_true', dest='test',
+                 default=False, help='testing')
+    p.add_option('--test_planner', '--tp', action='store_true', dest='test_planner',
+                 default=False, help='test planner')
+    p.add_option('--random_start', '--rs', action='store_true', dest='rnd_start',
+                 default=False, help='randomize maps')
+    p.add_option('--vi_renew', '--vi', action='store_true', dest='vi_renew',
+                 default=False, help='renew value iter')
+    p.add_option('--irl_renew', '--irl', action='store_true', dest='irl_renew',
+                 default=False, help='renew irl iter')
+    p.add_option('--cstr_renew', action='store_true', dest='cstr_renew',
+                 default=False, help='renew the constraint model')
+    p.add_option('--viz', '--v', action='store_true', dest='viz',
+                 default=False, help='use visualization')
+    p.add_option('--renew', action='store_true', dest='renew',
+                 default=False, help='renew ')
+
+    p.add_option('--work_path', action='store', dest='work_path',
+                 default="data/bnirl_2d_"+env_type, type="string",
+                 help='set a workspace path ')
+    p.add_option('--irl_filename', action='store', dest='irl_filename',
+                 default=None, type="string", help='set a workspace path')
+    p.add_option('--eta', action='store', dest='eta',
+                 default=-1, type="float", help='set eta value for partitioning ')
+    p.add_option('--save', action='store_true', dest='save',
+                 default=False, help='save ')
+    p.add_option('--test_id', action='store', dest='test_id',
+                 default=-1, type="int", help='set test id.')
+    p.add_option('--seed', action='store', dest='seed',
+                 default=None, type="int", help='set seed')
+    
+    opt, args = p.parse_args()
+
+    sav_filenames = {'Q':           os.path.join(opt.work_path, "Q"),
+                     'rl':          os.path.join(opt.work_path, "vi"),
+                     'irl':         os.path.join(opt.work_path, "bnirl"),
+                     'demo':        os.path.join(opt.work_path, "demo"),
+                     'feat':        os.path.join(opt.work_path, "feat"),
+                     'roadmap':     os.path.join(opt.work_path, "roadmap"),
+                     'result':      os.path.join(os.path.join(opt.work_path, "result"), "rnd_eta")}
+    if opt.irl_filename is not None:
+        sav_filenames['irl']    = opt.irl_filename
+    if opt.eta > 0:
+        sav_filenames['irl']    = sav_filenames['irl']+'_'+str(opt.eta)
+        sav_filenames['result'] = sav_filenames['result']+'_'+str(opt.eta)
+        
+    if not os.path.isdir(opt.work_path):
+        os.makedirs(opt.work_path)
+        print "created directory: ", opt.work_path
+    if not os.path.isdir(os.path.join(opt.work_path, "result")):
+        os.makedirs(os.path.join(opt.work_path, "result"))
+        print "created directory: ", opt.work_path
+
+    # --------------------------------------------------------------------------
+    if opt.train: train(sav_filenames,\
+                        rnd_start=opt.rnd_start,
+                        vi_renew=opt.vi_renew,
+                        irl_renew=opt.irl_renew,
+                        cstr_renew=opt.cstr_renew,
+                        renew=opt.renew,
+                        viz=opt.viz,
+                        test_eta=opt.eta,
+                        test_id=opt.test_id,
+                        seed=opt.seed)
+    if opt.test:  test(sav_filenames, rnd_start=opt.rnd_start, viz=opt.viz, test_eta=opt.eta,
+                       save_data=opt.save,
+                       test_id=opt.test_id,
+                       seed=opt.seed)
+
