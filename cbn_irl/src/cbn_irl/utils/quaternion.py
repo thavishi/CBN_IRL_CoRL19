@@ -164,7 +164,7 @@ def euler2quat(z=0, y=0, x=0, w_first=False):
                          cx*sy*sz + cy*cz*sx])
 
 
-# Not WORKING!!!!!!!!!!!!!!
+# Not completely tested.....
 # quat_mean: a quaternion(xyzw) that is the center of gaussian distribution
 # n:
 # stdDev: a vector (4x1) that describes the standard deviations of the distribution
