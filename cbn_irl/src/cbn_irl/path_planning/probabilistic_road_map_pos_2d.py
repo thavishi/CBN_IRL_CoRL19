@@ -54,7 +54,11 @@ class KDTree:
     """
 
     def __init__(self, data, leafsize=10):
-        self.tree = BallTree(data, leafsize)
+        if isinstance(data,list):
+            data_r = np.array(data)
+        else:
+            data_r = data
+        self.tree = BallTree(data_r, leafsize)
 
     def search(self, inp, k=1):
         u"""
