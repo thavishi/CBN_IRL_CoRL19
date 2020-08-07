@@ -19,7 +19,7 @@ from cbn_irl.utils import misc
 from cbn_irl.viz import viz as v
 
 env_type = "circle"
-env_name  = 'reaching-v0'
+env_name  = 'reaching-v1'
 n_states  = 5000
 n_actions = 12
 leafsize  = 15
