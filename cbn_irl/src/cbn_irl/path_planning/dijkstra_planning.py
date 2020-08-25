@@ -266,7 +266,11 @@ def get_close_state_idx(state, env, states, poses=None, w=None, jnt_ratio=0.0, r
         if poses is None:
             if distFunc is not None:
                 s_idx = np.argmin(distFunc(states, state))
-            else:            
+            else:
+                print("states is")
+                print(states)
+                print("state is")
+                print(state)           
                 s_idx = np.argmin(np.linalg.norm(states-state, axis=1))
         else:            
             s_idx = np.argmin(np.linalg.norm((states-state)*w.reshape(1,-1), axis=1)*jnt_ratio+

@@ -49,8 +49,10 @@ num_feat   = 10 #number of discretized features
 goal_dist  = 1
 use_discrete_state = True
 
+obj_function = 31
 
-def feature_fn(env, state, instr=None, cont=True):
+
+def feature_fn_1(env, state, instr=None, cont=True):
     """
     inputs:
       state vector - a state      
@@ -102,6 +104,12 @@ def feature_fn(env, state, instr=None, cont=True):
 
     return np.array(feat_vec).astype(float) 
 
+def feature_fn(env, state, instr=None, cont=True):
+    feat_vec = []
+    feat_vec.append(state[0])
+    #feat_vec.append(state[1])
+
+    return np.array(feat_vec).astype(float)
 
 def make_default_reward(trees, states, obs_penalty=0, dist_thres=2.5):
     '''
@@ -149,7 +157,7 @@ def train(sav_filenames, rnd_start=False, vi_renew=False, irl_renew=False,
     if seed is not None: np.random.seed(seed)
     
     # Set env -----------------------------------------------
-    d = ob.generate_objects(21, env_name, return_path=True, viz=False)
+    d = ob.generate_objects(obj_function, env_name, return_path=True, viz=False)
     objs = d['objs']; labels=d['labels']
     start=d['start']; goal=d['goal']; traj=d['path']
     data_dict = {0: [traj]}
@@ -239,7 +247,7 @@ def test(sav_filenames, rnd_start=False, viz=False, save_data=False, test_eta=-1
     if seed is not None: np.random.seed(seed)
 
     # Set env -----------------------------------------------
-    d = ob.generate_objects(21, env_name, return_path=True)
+    d = ob.generate_objects(obj_function, env_name, return_path=True)
     objs = d['objs']; labels=d['labels']
     start=d['start']; goal=d['goal']; demo_traj=d['path']
     

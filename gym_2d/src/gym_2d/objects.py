@@ -3,6 +3,11 @@ import gym
 import gym.spaces
 import numpy as np
 import copy
+import config2D as conf
+from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.pyplot as plt
+import record_demo as rcd
+import reading_path as rp
 
 def generate_objects(index, env_name, start=None, goal=None, viz=False, return_path=False):
     env = gym.make(env_name)
@@ -228,6 +233,50 @@ def obstacles21(xlim, ylim, start=None, goal=None, return_path=False):
             x = c[0] + r*np.cos(np.pi*float(i)/180.0)
             y = c[1] + r*np.sin(np.pi*float(i)/180.0)        
             path.append( [x,y] )
+        d['path'] = path
+        print("path is ")  
+        print(path)
+
+    return d
+
+
+
+def obstacles31(xlim, ylim, start=None, goal=None, return_path=False):
+    """Environment for a semi-circular path 
+    """
+    
+    start = np.array([conf.start[0],conf.start[1]])
+    goal  = np.array([conf.goal[0],conf.goal[1]])
+
+    obstacles = []
+    labels    = []
+    #0######
+    i = 1
+    while i <=conf.objects[0][0]:
+        for j in range(conf.objects[i][0],(conf.objects[i][0]+conf.objects[i][2])):
+            obstacles.append([j, conf.objects[i][1]])
+            labels.append(str(i))
+            obstacles.append([j, (conf.objects[i][1]+conf.objects[i][3])])
+            labels.append(str(i))
+        for j in range(conf.objects[i][1],(conf.objects[i][1]+conf.objects[i][3])):
+            obstacles.append([conf.objects[i][0], j])
+            labels.append(str(i))
+            obstacles.append([(conf.objects[i][0]+conf.objects[i][2]),j])
+            labels.append(str(i))
+        i = i+1
+    #########
+
+    obstacles = np.array(obstacles)
+
+    d = {'objs': obstacles, 'labels': labels,'start': start, 'goal': goal}
+
+    if return_path:
+        print("generating demo environment")
+        rcd.generate_demo()
+        print("path recorded")
+        path = rp.get_path()
+        print("path converted")
+        #print(path)
         d['path'] = path     
     return d
 
@@ -267,6 +316,8 @@ def obstacles22(xlim, ylim, start=None, goal=None, return_path=False):
         labels.append('right')        
 
     obstacles = np.array(obstacles)
+    d = {'objs': obstacles, 'labels': labels,
+         'start': start, 'goal': goal}
 
     if return_path:
         path = []
@@ -279,10 +330,9 @@ def obstacles22(xlim, ylim, start=None, goal=None, return_path=False):
         path.append(goal)
         path = np.array(path)
         path = interpolate_path(path, length=180)
+        d['path'] = path 
             
-        return (obstacles, labels), start, goal, path
-    else:
-        return (obstacles, labels), start, goal, None
+    return d
     
 
 

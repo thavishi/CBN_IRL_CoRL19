@@ -61,7 +61,7 @@ class ContWorldEnv(gym.Env):
 
     @property
     def observation_space(self):
-        return spaces.Box( 0., 60., (2,), dtype=np.float32)
+        return spaces.Box( 0., 50., (2,), dtype=np.float32)
 
 
     def seed(self, seed=None):
