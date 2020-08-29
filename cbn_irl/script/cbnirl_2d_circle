@@ -39,7 +39,7 @@ eta_range = np.logspace(-2,1.2,40)
 
 burn_in      = 1500 
 n_iter       = 3000 
-cstr_ths     = 0.02 #17 #5
+cstr_ths     = 2#0.02 #17 #5
 
 # T[0] propto the stability
 Ts         = [7,5] # temperature for resampling and partitionning
@@ -49,7 +49,7 @@ num_feat   = 10 #number of discretized features
 goal_dist  = 1
 use_discrete_state = True
 
-obj_function = 31
+obj_function = 32
 
 
 def feature_fn_1(env, state, instr=None, cont=True):
@@ -162,19 +162,36 @@ def train(sav_filenames, rnd_start=False, vi_renew=False, irl_renew=False,
     start=d['start']; goal=d['goal']; traj=d['path']
     data_dict = {0: [traj]}
 
+    #DEBUG
+    print("generated objects and path")
+    #END DEBUG
+
     env = gym.make(env_name)
     env.__init__(start, goal, objs, data_dict=d, viz=False)
     trees, objs_in_tree = ob.make_labelled_trees(objs, labels)
     env.set_label_trees(trees, objs_in_tree)
 
+    #DEBUG
+    print("created labelled trees")
+    #END DEBUG
     
     # Fit continuous trajectories on the discretized space --
     if os.path.isfile(sav_filenames['roadmap']) is False or renew:
+        #DEBUG
+        print("inside if")
+        #END DEBUG
         roadmap, states, skdtree = prm.get_roadmap(env,
                                                    knn=n_actions,
                                                    n_sample=n_states,
                                                    leafsize=leafsize,
                                                    seed_num=4)
+        #DEBUG
+        # print("printing states")
+        # print(states)
+        # plt.scatter(states[:,0], states[:,1])
+        # plt.show()
+        #END DEBUG
+
         
         T = tm.create_undirect_transition_matrix(roadmap, states, (env.action_space.low,
                                                                    env.action_space.high),
@@ -182,6 +199,16 @@ def train(sav_filenames, rnd_start=False, vi_renew=False, irl_renew=False,
         # Convert the raw demonstrations to roadmap based demonstrations
         trajs, idx_trajs = gt.convertRawTraj2RoadmapTraj(env, traj, roadmap, states,
                                                          gamma=10.0)
+        #DEBUG
+        # print("printing trajs")
+        # print(np.array(trajs))
+        # ttttt = np.array(trajs)
+        # print("printing idx")
+        # print(idx_trajs)
+        # print(ttttt[0,:,0])
+        # plt.scatter(ttttt[0,:,0], ttttt[0,:,1])
+        # plt.show()
+        #END DEBUG
         
         d = {'roadmap': roadmap, 'states': states, #'skdtree': skdtree,
              'trajs': trajs, 'idx_trajs': idx_trajs, 'T': T}

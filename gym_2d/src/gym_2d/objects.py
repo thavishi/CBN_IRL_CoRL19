@@ -280,6 +280,42 @@ def obstacles31(xlim, ylim, start=None, goal=None, return_path=False):
         d['path'] = path     
     return d
 
+def obstacles32(xlim, ylim, start=None, goal=None, return_path=False):
+    start = np.array([conf.start[0],conf.start[1]])
+    goal  = np.array([conf.goal[0],conf.goal[1]])
+
+    obstacles = []
+    labels    = []
+    #0######
+    i = 1
+    while i <=conf.objects[0][0]:
+        for j in range(conf.objects[i][0],(conf.objects[i][0]+conf.objects[i][2])):
+            for k in range (conf.objects[i][1],(conf.objects[i][1]+conf.objects[i][3])):
+                obstacles.append([j, k])
+                labels.append(str(i))
+                obstacles.append([j+0.5, k+0.5])
+                labels.append(str(i))
+                obstacles.append([j+0.5, k])
+                labels.append(str(i))
+                obstacles.append([j, k+0.5])
+                labels.append(str(i))
+        i = i+1
+    #########
+
+    obstacles = np.array(obstacles)
+
+    d = {'objs': obstacles, 'labels': labels,'start': start, 'goal': goal}
+
+    if return_path:
+        print("generating demo environment")
+        rcd.generate_demo()
+        print("path recorded")
+        path = rp.get_path()
+        print("path converted")
+        #print(path)
+        d['path'] = path     
+    return d
+
 
 def obstacles22(xlim, ylim, start=None, goal=None, return_path=False):
     """Tunnel"""

@@ -77,9 +77,16 @@ class KDTree:
 
 def get_roadmap(start, goal, obstacles, rr, xlim=None, ylim=None, knn=5, n_sample=500):
     u"""Generate roadmap"""
+    #DEBUG
+    print("in roadmap")
+    #END DEBUG
     
     ## obkdtree = KDTree(np.vstack((ox, oy)).T)
     obkdtree = KDTree(obstacles)
+
+    #DEBUG
+    print("generated KDtree")
+    #END DEBUG
 
     if xlim is None:
         xlim = [min(obstacles[:,0]), max(obstacles[:,0])]
@@ -88,9 +95,18 @@ def get_roadmap(start, goal, obstacles, rr, xlim=None, ylim=None, knn=5, n_sampl
     sample_x, sample_y = sample_points(start[0], start[1], goal[0], goal[1],
                                        rr, obstacles[:,0], obstacles[:,1],
                                        obkdtree, xlim, ylim, n_sample=n_sample)
+    #DEBUG
+    print("generated sample x and y points")
+    #END DEBUG
 
     road_map, skdtree = generate_roadmap(sample_x, sample_y, rr, obkdtree,
                                          obstacles, knn=knn)
+    #DEBUG
+    print("created road map")
+    print(road_map[0])
+    print("roadmap [1]")
+    print(road_map[1])
+    #END DEBUG
 
     return road_map, np.array([sample_x, sample_y]).T, skdtree
 
@@ -176,6 +192,9 @@ def generate_roadmap(sample_x, sample_y, rr, obkdtree, ob_states, knn, leafsize=
     skdtree = KDTree(np.vstack((sample_x, sample_y)).T, leafsize=leafsize)
 
     for (i, ix, iy) in zip(range(nsample), sample_x, sample_y):
+        #DEBUG
+        print(i)
+        #END
 
         index, dists = skdtree.search(
             np.matrix([ix, iy]).T, k=leafsize)

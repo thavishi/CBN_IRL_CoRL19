@@ -4,6 +4,7 @@ import pickle
 import numpy as np, scipy
 import PyKDL
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 #from mdp import parallel_value_iteration as vi
 from mdp import value_iteration as vi
@@ -80,6 +81,15 @@ def bn_irl(env, roadmap, skdtree, states, T, gamma, trajs, idx_trajs,
         # trajs, idx_trajs, feat_trajs have the same order
         feat_map = fu.get_features_from_states(env, states, feature_fn)
         feat_trajs = np.array(ut.trajs2featTrajs(idx_trajs, feat_map))
+
+        #DEBUG
+        # print("states")
+        # print(states)
+        # print("feat_map is")
+        # print(feat_map)
+        # print("feat_traj is")
+        # print(feat_trajs)
+        #END DEBUG
 
         # get features given each feature sub goal
         # support_feature: each support state's feature index, {indices | s_idx \in S, f(s)==f(s_g)}
@@ -321,6 +331,33 @@ def bn_irl(env, roadmap, skdtree, states, T, gamma, trajs, idx_trajs,
                 
         tqdm_e.set_description("t: {0:.2f}, post: {1:.2f}), goals: {2:.1f}".format(0, 0, len(goals)))
         tqdm_e.refresh()
+
+    #DEBUG
+    print("z is")
+    print(z)
+    print("goals is")
+    print(goals)
+    print("trajectory is")
+    print(trajs)
+    ttttt = np.array(trajs)
+    plt.scatter(ttttt[0,:,0], ttttt[0,:,1])
+    #plt.show()
+    jj = z[0]
+    ii = -1
+    for i in z:
+        print("i and jj is")
+        print(i)
+        print(jj)
+        if i != jj:
+            print("inside f")
+            print(i)
+            print(jj)
+            plt.plot(ttttt[0,ii,0], ttttt[0,ii,1],'ro')
+        ii = ii +1
+        jj = i
+
+    plt.show()
+    #END DEBUG
 
     pickle.dump( log, open( kwargs['sav_filenames']['irl'], "wb" ) )    
     return log

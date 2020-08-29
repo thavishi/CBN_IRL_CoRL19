@@ -57,3 +57,31 @@ def generate_demo():
 
     # Show
     plt.show()
+
+
+def print_lastz(z, traj):
+
+    #Create figure/environment to draw trajectories on
+    fig, ax = plt.subplots()
+    plt.subplots_adjust(bottom=0.2)
+    points,   = ax.plot([], [], 'ro', markersize=2, lw=2)
+    ax.set_xlim(conf.base[0], conf.base[1])
+    ax.set_ylim(conf.base[0], conf.base[1])
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.xlabel('$x_1$',fontsize=15)
+    plt.ylabel('$x_2$',fontsize=15)
+    plt.title('Plotting last Z state in each partition:',fontsize=15)
+
+    i = 1
+    while i <=conf.objects[0][0]:
+        ax.add_artist(plt.Rectangle((conf.objects[i][0], conf.objects[i][1]), conf.objects[i][2], conf.objects[i][3], fc='r'))
+        i = i+1
+    #ax.add_artist(plt.Rectangle((0.50, 0.25), 0.4, 0.1))
+    ax.plot(conf.start[0], conf.start[1], 'rd', markersize=10, lw=2, color = 'b')
+    ax.plot(conf.goal[0], conf.goal[1], 'rd', markersize=10, lw=2, color = 'g')
+
+    
+
+
+    # Show
+    plt.show()
